@@ -1,0 +1,116 @@
+# set the horizons code for the comet 
+horizons_code : '90004677'
+
+element : 'CO2'
+
+epoch_integration : 2459526.5
+
+# set the JPL marsden parameters for the coemt 
+marsden_params: 
+  A1 : 2.478905916214E-8
+  A2 : -3.083727657795E-9
+  A3 : 0
+
+# set the global frame and origin fro the estimation
+frame : 
+  global_frame_origin : SSB
+  global_frame_orientation : J2000
+
+numerical : 
+  propagator : propagation_setup.propagator.cowell
+  integrator : 
+    coefficients : propagation_setup.integrator.CoefficientSets.rkf_56
+    stepsize : 100000
+
+# define the spice available bodies to be created in the environment 
+bodies: 
+  - Sun
+  - Mercury 
+  - Venus 
+  - Earth 
+  - Mars 
+  - Jupiter 
+  - Saturn 
+  - Uranus 
+  - Neptune 
+  - Moon 
+  - Ganymede
+  - Callisto 
+  - Io
+  - Europa
+  - Titan
+  - Ceres
+  - Vesta
+  - Phobos 
+  - Rhea
+  - Iapetus
+  - Dione
+  - Tethys
+  - Enceladus
+  - Mimas
+
+# decide if to include perturbations from asteroids or not 
+asteroids : 
+  min_mass : 13e18
+
+# decide if to include perturbations due to extra bodies or not 
+extra_bodies :
+  '999' : 1.3025e22 # Pluto
+  'Triton' : 2.1389e22
+  'Titania' : 3.4550e21
+
+# define eventual additions / modifocations to the sytem_of_bodies 
+body_settings: 
+  rotation_settings :
+    Earth : environment_setup.rotation_model.gcrs_to_itrs(environment_setup.rotation_model.IAUConventions.iau_2006, J2000)
+
+# define the accelerations to be applied 
+accelerations: 
+  Sun : 
+    - propagation_setup.acceleration.point_mass_gravity()
+    - propagation_setup.acceleration.relativistic_correction(use_schwarzschild=True)
+    - propagation_setup.acceleration.custom_acceleration(nongrav_acc.compute_acc)
+  Mercury : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Venus : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Earth : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Mars : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Jupiter : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Saturn : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Uranus : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Neptune : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Moon :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Ganymede : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Callisto :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Io :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Europa :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Titan: 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Ceres :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Vesta :
+    - propagation_setup.acceleration.point_mass_gravity() 
+  Rhea :
+    - propagation_setup.acceleration.point_mass_gravity()
+  Iapetus : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Dione : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Tethys : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Enceladus : 
+    - propagation_setup.acceleration.point_mass_gravity()
+  Mimas : 
+    - propagation_setup.acceleration.point_mass_gravity()

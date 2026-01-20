@@ -1,0 +1,4 @@
+This folder contains the configuration files for all studied objects, 
+from which the dynamical settings are read during the estimation and applied. 
+These define both the integrator-propagator, the Horizons data for the object 
+an the dynamical model. 
