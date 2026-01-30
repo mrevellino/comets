@@ -451,7 +451,7 @@ class PowerLawAcceleration(Acceleration):
         super().__init__(A1, A2, A3, bodies, target, code_horizons, Dt, epoch_start, epoch_end)
 
         self.dict = dict
-        self.n = n
+        self.n = np.array([n])
         self.r0 = np.array([r0]) 
 
     def compute_acc(self, current_time):
@@ -464,9 +464,10 @@ class PowerLawAcceleration(Acceleration):
         r_au = helio_distance.to(u.au).value 
 
         r_0 = float(self.r0)
+        n = float(self.n)
         
         S = 1 / (1 + np.exp(-(r_au - r_0)/(1e-2))) 
-        g_r = (1-S)*(1/r_au**self.n) + (S)*(np.exp(-r_au/(1e-2)))
+        g_r = (1-S)*(1/r_au**n) + (S)*(np.exp(-r_au/(1e-2)))
 
 
         acc = np.array([self.custom_values[0]*g_r, self.custom_values[1]*g_r, self.custom_values[2]*g_r])
@@ -495,9 +496,10 @@ class PowerLawAcceleration(Acceleration):
         r_au = r.to(u.au).value
 
         r_0 = float(self.r0)
+        n = float(self.n)
         
         S = 1 / (1 + np.exp(-(r_au - r_0)/(1e-2))) 
-        g_r = (1-S)*(1/r_au**self.n) + (S)*(np.exp(-r_au/(1e-2)))
+        g_r = (1-S)*(1/r_au**n) + (S)*(np.exp(-r_au/(1e-2)))
 
         matrix = np.array([np.array([g_r*R[0],  g_r*T[0], g_r*N[0]]), np.array([g_r*R[1],  g_r*T[1], g_r*N[1]]), np.array([g_r*R[2],  g_r*T[2], g_r*N[2]])])
 
@@ -513,14 +515,35 @@ class PowerLawAcceleration(Acceleration):
         r_au = helio_distance.to(u.au).value 
 
         r_0 = float(self.r0)
+        n = float(self.n)
 
         dS_dr0 = - ((1e2)*np.exp((1e2)*(r_0-r_au))) / ((np.exp((1e2)*(r_0-r_au)) + 1)**2)
-        dg_dr0 = (1/r_au**self.n)*(-dS_dr0) + dS_dr0*(np.exp(-r_au/(1e-2)))
+        dg_dr0 = (1/r_au**n)*(-dS_dr0) + dS_dr0*(np.exp(-r_au/(1e-2)))
 
         acc =  np.array([self.custom_values[0]*dg_dr0, self.custom_values[1]*dg_dr0, self.custom_values[2]*dg_dr0])
         da_dr0 = rotation_matrix @ acc
 
         return da_dr0 
+    
+    def compute_n_partial(self, current_time, current_pos): 
+        cartesian_state = self.bodies.get(self.target).state - self.bodies.get('Sun').state 
+        rotation_matrix = frame_conversion.rsw_to_inertial_rotation_matrix(cartesian_state)
+        helio_distance = np.linalg.norm(cartesian_state[:3]) * u.m
+        if float(self.Dt) != 0: 
+            cartesian_state = self.get_cartesian_state(current_time)
+            helio_distance = np.linalg.norm(cartesian_state[:3]) * u.m
+        r_au = helio_distance.to(u.au).value 
+
+        r_0 = float(self.r0)
+        n = float(self.n)
+
+        S = 1 / (1 + np.exp(-(r_au - r_0)/(1e-2))) 
+        dg_dn = -(1-S)*(r_au**(-n))*np.log(r_au)
+
+        acc =  np.array([self.custom_values[0]*dg_dn, self.custom_values[1]*dg_dn, self.custom_values[2]*dg_dn])
+        da_dn = rotation_matrix @ acc
+
+        return da_dn 
 
     def get_custom_parameters(self):
         return self.custom_values
@@ -533,6 +556,12 @@ class PowerLawAcceleration(Acceleration):
 
     def set_custom_r0(self, estimated_r0):
         self.r0 = np.array([estimated_r0])
+
+    def get_custom_n(self):
+        return self.n
+
+    def set_custom_n(self, estimated_n):
+        self.n = np.array([estimated_n])
 
 class ContinousAcceleration(Acceleration):
     def __init__(self, A1, A2, A3, bodies, target, code_horizons, Dt, epoch_start, epoch_end, dict, element, r0_h2O, r0_CO2, r0_CO, C):

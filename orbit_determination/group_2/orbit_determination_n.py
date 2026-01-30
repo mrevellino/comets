@@ -1,7 +1,7 @@
 """
-Orbit determination for analysed comets from group 1, for which astrometric data are available 
+Orbit determination for analysed comets from group 2, for which all MPC data are analysed
 Any of the implemented acceleration models can be applied
-Estimation of the initial state and the A1, A2, A3 parameters 
+Estimation of the initial state and the A1, A2, A3, r_0 parameters 
 """
 
 # Tudat imports for propagation and estimation
@@ -24,13 +24,20 @@ from astropy.time import Time
 from astroquery.mpc import MPC
 from pathlib import Path
 from astropy import units as u
+import matplotlib.lines as mlines
 
 # import the costum acceleration 
 from comegs.accelerations import COMarsdenAcceleration,  MarsdenAcceleration, PowerLawAcceleration, ContinousAcceleration
 from comegs.settings import Integrator
 from comegs.observations import Observations
 from comegs.config_files import Configuration
+from comegs.plotting import PlotError
 
+# set-up current directory 
+current_dir = os.path.dirname(__file__)
+parent_dir = os.path.dirname(current_dir)
+home = Path().home()
+astrometry_results = home / f"Desktop/astrometry_results/Complete"
 
 # Load the defaul SPICE kernels 
 spice.load_standard_kernels()
@@ -53,9 +60,9 @@ USER INPUTS:
 - sublimating volatile for the acceleration model
 """
 
-target_mpc_code = '2021 S3' 
+target_mpc_code = '2015 H2' 
 mpc_code = 'C/' + target_mpc_code
-element = 'H2O'
+element = 'CO2'
 
 """
 Read the relative config file to define the horizons code, etc...
@@ -86,6 +93,7 @@ time_perihelion = (target_sbdb.time_perihelion - 2451545.0)*86400
 """
 Define settings for the estimation (start and end epochs, number of used iterations)
 """
+# set up data needed for the estimation 
 number_of_pod_iterations = 8
 
 # define the frame origin and orientation.
@@ -106,74 +114,51 @@ bodies_to_propagate = [str(target_mpc_code)]
 central_bodies = ['Sun']
 
 """
-Load the astrometrical measurements - both from the costum measurements file and from trusted observatories in the MPC
+Load the astrometrical measurements from the MPC
 """
-
-# observations from the MPC from the trusted observatories 
+# observations from the MPC
 batch = BatchMPC()
 batch.get_observations([str(mpc_code)])
-batch.filter(
-    epoch_start=observations_start,
-    epoch_end=observations_end,
-    observatories=['568', 'Z84', 'H01', 'G37', 'F65', 'E10', 'F51', 'F52']
-)
 obs_df = batch.table
 obs_df['epochUTC'] = pd.to_datetime(obs_df['epochUTC'])
-# extract just the year and month
-obs_df['obs_month'] = obs_df['epochUTC'].dt.to_period('M')
-obs_per_month = obs_df.groupby('obs_month').size().reset_index(name='count')
+# extract just the date (no time)
+obs_df['obs_date'] = obs_df['epochUTC'].dt.date
+# count how many observations per date and define weights
+obs_per_day = obs_df.groupby('obs_date').size().reset_index(name='count')
 
 sigma_arcsec = np.select(
     [obs_df['observatory'] == '568',
     obs_df['observatory'] == 'H01',
-    obs_df['observatory'].isin(['F51', 'F52'])],
-    [0.4, 0.6, 0.4],
-    default=2  
+    obs_df['observatory'].isin(['F51', 'F52']), 
+    obs_df['observatory'].isin(['Z84', 'G37', 'F65', 'E10', 'W84', 'T14', '309'])],
+    [0.4, 0.6, 0.4, 2],
+    default=3  
     ) * u.arcsec
 sigma = sigma_arcsec.to(u.rad).value
 
-obs_df['weight'] = 1 / (sigma**2 * np.sqrt(obs_df.groupby('obs_month')['obs_month'].transform('count')))
+obs_df['weight'] = 1 / (sigma**2 *np.sqrt(obs_df.groupby('obs_date')['obs_date'].transform('count')))
 weights_list = obs_df['weight'].tolist()
 batch.set_weights(weights_list)
 
+batch.summary()
+
+
 try:
-    observation_collection_2 = batch.to_tudat(bodies, None, apply_weights_VFCC17=False)
-    observation_settings_list_2 = list()
+    observation_collection = batch.to_tudat(bodies, None, apply_weights_VFCC17=False)
+    observation_settings_list = list()
     link_list = list(
-        observation_collection_2.get_link_definitions_for_observables(
+        observation_collection.get_link_definitions_for_observables(
             observable_type=observation.angular_position_type
         )
     )
 
     for link in link_list:
         # add optional bias settings here
-        observation_settings_list_2.append(
+        observation_settings_list.append(
             observation.angular_position(link, bias_settings=None)
         )
-    
-    # only get the MPC obs to compare if they are good
-    observations_MPC = observation_collection_2.get_concatenated_computed_observations()
-    obs_times_MPC = observation_collection_2.get_concatenated_observation_times()
-    ra_MPC = observations_MPC[::2]
-    dec_MPC = observations_MPC[1::2]
 except:
     print('No obs in MPC')
-
-# observations from astrometry files 
-observations = Observations(str(target_mpc_code), epoch_start, epoch_end, bodies)
-# retrived the ground stations coordinates from the MPC
-observatories_table = MPC.get_observatory_codes().to_pandas()
-
-observation_settings_list_1, observation_collection_1, astrometry_obs_dict = observations.load_observations_from_file(
-    astrometry_results/f'{config_number}.psv', observatories_table, apply_weights=True
-    )
-
-try: 
-    observation_settings_list = observation_settings_list_1 + observation_settings_list_2
-    observation_collection = numerical_simulation.estimation.merge_observation_collections([observation_collection_1, observation_collection_2])
-except: 
-    observation_collection = observation_collection_1
-    observation_settings_list = observation_settings_list_1
 
 # based on the available observations define the start and end epochs for the estimation
 observations = observation_collection.get_concatenated_computed_observations()
@@ -200,7 +185,6 @@ elif element == 'CO':
     n = 2
     r0_pl = 30       
 
-# other acceleration models can be applied as retrieved from the Comegs lib - this allows to test the perormance of different models 
 nongrav_acc = PowerLawAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
                                     horizons_code, Dt, epoch_start, epoch_end,
                                     dict_acc, n, r0_pl)
@@ -248,7 +232,7 @@ propagator_settings = integrator.fixed_step_size(termination_condition, propagat
 
 
 """
-Define the parameters to be estimated - other than the initial state it is also possible to estimate the A1, A2, A3 model parameters and the optimal r_0
+Define the parameters to be estimated - other than the initial state it is also possible to estimate the Marsden model parameters and the Dt
 """
 # Setup parameters settings to propagate the state transition matrix
 parameter_settings = estimation_setup.parameter.initial_states(
@@ -262,9 +246,23 @@ parameter_settings.append(estimation_setup.parameter.custom_parameter(
                 )
 )
 
-parameter_settings[-1].custom_partial_settings = [
+# estimate the r0 parameter 
+parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                    "marsden_acc.n", 1, nongrav_acc.get_custom_n, 
+                    nongrav_acc.set_custom_n
+                )
+)
+
+parameter_settings[-2].custom_partial_settings = [
                 estimation_setup.parameter.custom_analytical_partial(
                     nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                    propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                )
+            ]
+
+parameter_settings[-1].custom_partial_settings = [
+                estimation_setup.parameter.custom_analytical_partial(
+                    nongrav_acc.compute_n_partial, target_mpc_code, "Sun",
                     propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
                 )
             ]
@@ -274,42 +272,71 @@ parameters_to_estimate = estimation_setup.create_parameter_set(
     parameter_settings, bodies, propagator_settings
 )
 
+# Iterative filtering of the available observations
+sigma = 1e3
+for j in range(3): 
+    
+    """
+    Filter the observations
+    """
+    filter_obj = numerical_simulation.estimation.observation_filter(
+        numerical_simulation.estimation.residual_filtering,
+        5*sigma,
+        use_opposite_condition=False
+    )
+
+    observation_collection.filter_observations(filter_obj)
+    print(len(observation_collection.get_concatenated_residuals()))
+
+    """
+    Set up the estimation 
+    """
+    # Set up the estimator
+    estimator = numerical_simulation.Estimator(
+        bodies=bodies,
+        estimated_parameters=parameters_to_estimate,
+        observation_settings=observation_settings_list,
+        propagator_settings=propagator_settings,
+        integrate_on_creation=True,
+    )
+
+    # provide the observation collection as input, and limit number of iterations for estimation.
+    pod_input = estimation.EstimationInput(
+        observations_and_times=observation_collection,
+        convergence_checker=estimation.estimation_convergence_checker(
+            maximum_iterations=number_of_pod_iterations,
+        ),
+    )
+
+    # Set methodological options
+    pod_input.define_estimation_settings(reintegrate_variational_equations=True)
+
+    """
+    Perform the estimation 
+    """
+    pod_output = estimator.perform_estimation(pod_input)
+
+    """
+    Estimate the 1-sigma value of residuals 
+    """
+    residuals= pod_output.residual_history[:,-1]
+    computed_obs = observation_collection.get_concatenated_computed_observations()
+    dec = computed_obs[1::2]
+    res_ra = residuals[::2]*np.cos(dec)
+    res_dec = residuals[1::2]
+
+    radial = np.sqrt(res_ra**2 + res_dec**2)
+    sigma = np.std(radial, ddof=1)
 
 """
-Set up the estimation 
-"""
-# Set up the estimator
-estimator = numerical_simulation.Estimator(
-    bodies=bodies,
-    estimated_parameters=parameters_to_estimate,
-    observation_settings=observation_settings_list,
-    propagator_settings=propagator_settings,
-    integrate_on_creation=True,
-)
-
-# provide the observation collection as input, and limit number of iterations for estimation.
-pod_input = estimation.EstimationInput(
-    observations_and_times=observation_collection,
-    convergence_checker=estimation.estimation_convergence_checker(
-        maximum_iterations=number_of_pod_iterations,
-    ),
-)
-
-# Set methodological options
-pod_input.define_estimation_settings(reintegrate_variational_equations=True)
-
-"""
-Perform the estimation 
-"""
-pod_output = estimator.perform_estimation(pod_input)
-
-"""
-Retrieve the estimation results 
-"""
+Retrieve the results of the estimation
+"""    
 final_parameters = pod_output.final_parameters
 formal_errors = pod_output.formal_errors
 
-# calculate the normalised RMS values 
+"""
+RMS resdiuals 
+"""
 residuals= pod_output.residual_history[:,-1]
 computed_obs = observation_collection.get_concatenated_computed_observations()
 dec = computed_obs[1::2]
@@ -330,13 +357,14 @@ rms_tot = np.sqrt((1/len(residuals))*chi_2)
 print('Final estimated parameter:',final_parameters)
 print('Final estimated formal errors:',formal_errors)
 print('Final normalised RMS residuals:', rms_tot)
+exit(0)
 
 """
 Plot the correlation matrix 
 """
 fig, ax = plt.subplots(figsize=(8, 4))
 
-estimated_param_names = ["x", "y", "z", "vx", "vy", "vz", "A1", "A2", "A3"]
+estimated_param_names = ["x", "y", "z", "vx", "vy", "vz", "A1", "A2", "A3", 'r0']
 
 correlations = pod_output.correlations
 im = ax.imshow(
@@ -383,5 +411,5 @@ ax[1].axvline(time_perihelion, color='red', linestyle='--', linewidth=1)
 
 
 plt.tight_layout()
-
 plt.show()
+

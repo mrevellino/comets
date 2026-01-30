@@ -60,7 +60,7 @@ USER INPUTS:
 - sublimating volatile for the acceleration model
 """
 
-target_mpc_code = '2006 S3' 
+target_mpc_code = '2021 D2' 
 mpc_code = 'C/' + target_mpc_code
 element = 'CO2'
 
@@ -343,7 +343,7 @@ rms_tot = np.sqrt((1/len(residuals))*chi_2)
 print('Final estimated parameter:',final_parameters)
 print('Final estimated formal errors:',formal_errors)
 print('Final normalised RMS residuals:', rms_tot)
-
+exit(0)
 """
 Plot the correlation matrix 
 """

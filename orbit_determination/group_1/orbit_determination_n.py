@@ -1,7 +1,7 @@
 """
 Orbit determination for analysed comets from group 1, for which astrometric data are available 
 Any of the implemented acceleration models can be applied
-Estimation of the initial state and the A1, A2, A3 parameters 
+Estimation of the initial state and the A1, A2, A3, r_0 parameters 
 """
 
 # Tudat imports for propagation and estimation
@@ -53,9 +53,9 @@ USER INPUTS:
 - sublimating volatile for the acceleration model
 """
 
-target_mpc_code = '2021 S3' 
+target_mpc_code = '2024 E1' 
 mpc_code = 'C/' + target_mpc_code
-element = 'H2O'
+element = 'CO2'
 
 """
 Read the relative config file to define the horizons code, etc...
@@ -86,6 +86,7 @@ time_perihelion = (target_sbdb.time_perihelion - 2451545.0)*86400
 """
 Define settings for the estimation (start and end epochs, number of used iterations)
 """
+# set up data needed for the estimation 
 number_of_pod_iterations = 8
 
 # define the frame origin and orientation.
@@ -189,7 +190,7 @@ dict_acc = dict()
 
 # element parameters 
 if element == 'H2O':
-    n = 2
+    n = 2.3
     r0_pl = 2.8 
 
 elif element == 'CO2': 
@@ -255,16 +256,30 @@ parameter_settings = estimation_setup.parameter.initial_states(
     propagator_settings, bodies
 )
 
-# estimate the A1, A2, A3 parameters
+# estimate the A1, A2, A3 and parameters
 parameter_settings.append(estimation_setup.parameter.custom_parameter(
                     "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
                     nongrav_acc.set_custom_parameters
                 )
 )
 
-parameter_settings[-1].custom_partial_settings = [
+# estimate the r0 parameter 
+parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                    "marsden_acc.n", 1, nongrav_acc.get_custom_n, 
+                    nongrav_acc.set_custom_n
+                )
+)
+
+parameter_settings[-2].custom_partial_settings = [
                 estimation_setup.parameter.custom_analytical_partial(
                     nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                    propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                )
+            ]
+
+parameter_settings[-1].custom_partial_settings = [
+                estimation_setup.parameter.custom_analytical_partial(
+                    nongrav_acc.compute_n_partial, target_mpc_code, "Sun",
                     propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
                 )
             ]
@@ -336,7 +351,7 @@ Plot the correlation matrix
 """
 fig, ax = plt.subplots(figsize=(8, 4))
 
-estimated_param_names = ["x", "y", "z", "vx", "vy", "vz", "A1", "A2", "A3"]
+estimated_param_names = ["x", "y", "z", "vx", "vy", "vz", "A1", "A2", "A3", 'r0']
 
 correlations = pod_output.correlations
 im = ax.imshow(
@@ -383,5 +398,4 @@ ax[1].axvline(time_perihelion, color='red', linestyle='--', linewidth=1)
 
 
 plt.tight_layout()
-
 plt.show()

@@ -1,7 +1,7 @@
 *.dat
 *.csv
 *.pkl
-*.psv
+*.png
 __pycache__
 *.DS_Store
 *egg-info*
