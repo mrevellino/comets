@@ -175,15 +175,15 @@ estimator = numerical_simulation.Estimator(
     integrate_on_creation=True,
 )
 
-# pod_input = estimation.EstimationInput(
-#     simulated_observations,
-#     convergence_checker=estimation.estimation_convergence_checker(
-#         maximum_iterations=8,
-#     ),
-# )
+pod_input = estimation.EstimationInput(
+    simulated_observations,
+    convergence_checker=estimation.estimation_convergence_checker(
+        maximum_iterations=8,
+    ),
+)
 
-# pod_input.define_estimation_settings(reintegrate_variational_equations=True)
-# pod_output = estimator.perform_estimation(pod_input)
+pod_input.define_estimation_settings(reintegrate_variational_equations=True)
+pod_output = estimator.perform_estimation(pod_input)
 
 """
 Compare the estimated state with the Horizons JPL results 
@@ -195,57 +195,57 @@ plot_error_total = plotting.plot_error_total(global_frame_origin, gaps, None)
 """
 Simulate observations (from the ground) of the estimated  state 
 """
-# estimated_obs_dict = dict()
-# for observatory in astrometry_obs_dict.keys():
-#     obs_times = astrometry_obs_dict[observatory][0]
-#     if observatory not in bodies.get_body("Earth").ground_station_list:
+estimated_obs_dict = dict()
+for observatory in astrometry_obs_dict.keys():
+    obs_times = astrometry_obs_dict[observatory][0]
+    if observatory not in bodies.get_body("Earth").ground_station_list:
 
-#         station_coord = observations.station_definition(observatories_table)
-#         row = station_coord.loc[observatories_table['Code'] == observatory].iloc[0]
-#         X = float(row['X'])
-#         Y = float(row['Y'])
-#         Z = float(row['Z'])
+        station_coord = observations.station_definition(observatories_table)
+        row = station_coord.loc[observatories_table['Code'] == observatory].iloc[0]
+        X = float(row['X'])
+        Y = float(row['Y'])
+        Z = float(row['Z'])
 
-#         ground_station_settings = numerical_simulation.environment_setup.ground_station.basic_station(
-#         station_name=observatory,
-#         station_nominal_position=[X,Y,Z,],)
+        ground_station_settings = numerical_simulation.environment_setup.ground_station.basic_station(
+        station_name=observatory,
+        station_nominal_position=[X,Y,Z,],)
 
-#         numerical_simulation.environment_setup.add_ground_station(
-#             bodies.get_body('Earth'), ground_station_settings
-#         )
+        numerical_simulation.environment_setup.add_ground_station(
+            bodies.get_body('Earth'), ground_station_settings
+        )
 
-#     observation_settings_list = []
-#     observation_simulation_settings = []
-#     link_ends = dict()
-#     link_ends[observation.receiver] = observation.body_reference_point_link_end_id("Earth", observatory)  # the second name is the name of an observatory   
-#     link_ends[observation.transmitter] = observation.body_origin_link_end_id((str(target_mpc_code)))
-#     link_definition = observation.LinkDefinition(link_ends)
-#     observation_settings_list = [observation.angular_position(link_definition, bias_settings=None)]
+    observation_settings_list = []
+    observation_simulation_settings = []
+    link_ends = dict()
+    link_ends[observation.receiver] = observation.body_reference_point_link_end_id("Earth", observatory)  # the second name is the name of an observatory   
+    link_ends[observation.transmitter] = observation.body_origin_link_end_id((str(target_mpc_code)))
+    link_definition = observation.LinkDefinition(link_ends)
+    observation_settings_list = [observation.angular_position(link_definition, bias_settings=None)]
 
-#     observation_simulation_settings.append(observation.tabulated_simulation_settings(
-#         observation.angular_position_type,
-#         link_definition,
-#         obs_times,
-#         ))
+    observation_simulation_settings.append(observation.tabulated_simulation_settings(
+        observation.angular_position_type,
+        link_definition,
+        obs_times,
+        ))
 
-#     ephemeris_observation_simulators = estimation_setup.create_observation_simulators(
-#         observation_settings_list, bodies)
+    ephemeris_observation_simulators = estimation_setup.create_observation_simulators(
+        observation_settings_list, bodies)
 
-#     # simulate the wanted observations 
-#     simulated_observations = estimation.simulate_observations(
-#         observation_simulation_settings,
-#         ephemeris_observation_simulators,
-#         bodies)
+    # simulate the wanted observations 
+    simulated_observations = estimation.simulate_observations(
+        observation_simulation_settings,
+        ephemeris_observation_simulators,
+        bodies)
     
-#     observations_list = np.array(simulated_observations.concatenated_observations)
-#     ra_prop = np.degrees([np.mod(el, 2*np.pi) for el in observations_list[::2]])
-#     dec_prop = np.degrees(observations_list[1::2])
+    observations_list = np.array(simulated_observations.concatenated_observations)
+    ra_prop = np.degrees([np.mod(el, 2*np.pi) for el in observations_list[::2]])
+    dec_prop = np.degrees(observations_list[1::2])
 
-#     obs_array = []
-#     for i in range(len(ra_prop)):
-#         obs_array.append([ra_prop[i], dec_prop[i]])
+    obs_array = []
+    for i in range(len(ra_prop)):
+        obs_array.append([ra_prop[i], dec_prop[i]])
 
-#     estimated_obs_dict[observatory] = [obs_times, np.array(obs_array)]
+    estimated_obs_dict[observatory] = [obs_times, np.array(obs_array)]
 
 
 """
@@ -318,57 +318,57 @@ bodies = numerical_simulation.environment_setup.create_system_of_bodies(body_set
 """
 Simulate observations (from the ground) of the propagated state 
 """
-# simulated_obs_dict = dict()
-# for observatory in astrometry_obs_dict.keys():
-#     obs_times = astrometry_obs_dict[observatory][0]
-#     if observatory not in bodies.get_body("Earth").ground_station_list:
+simulated_obs_dict = dict()
+for observatory in astrometry_obs_dict.keys():
+    obs_times = astrometry_obs_dict[observatory][0]
+    if observatory not in bodies.get_body("Earth").ground_station_list:
 
-#         station_coord = observations.station_definition(observatories_table)
-#         row = station_coord.loc[observatories_table['Code'] == observatory].iloc[0]
-#         X = float(row['X'])
-#         Y = float(row['Y'])
-#         Z = float(row['Z'])
+        station_coord = observations.station_definition(observatories_table)
+        row = station_coord.loc[observatories_table['Code'] == observatory].iloc[0]
+        X = float(row['X'])
+        Y = float(row['Y'])
+        Z = float(row['Z'])
 
-#         ground_station_settings = numerical_simulation.environment_setup.ground_station.basic_station(
-#         station_name=observatory,
-#         station_nominal_position=[X,Y,Z,])
+        ground_station_settings = numerical_simulation.environment_setup.ground_station.basic_station(
+        station_name=observatory,
+        station_nominal_position=[X,Y,Z,])
 
-#         numerical_simulation.environment_setup.add_ground_station(
-#             bodies.get_body('Earth'), ground_station_settings
-#         )
+        numerical_simulation.environment_setup.add_ground_station(
+            bodies.get_body('Earth'), ground_station_settings
+        )
 
-#     observation_settings_list = []
-#     observation_simulation_settings = []
-#     link_ends = dict()
-#     link_ends[observation.receiver] = observation.body_reference_point_link_end_id("Earth", observatory)  # the second name is the name of an observatory   
-#     link_ends[observation.transmitter] = observation.body_origin_link_end_id((str(target_mpc_code)))
-#     link_definition = observation.LinkDefinition(link_ends)
-#     observation_settings_list = [observation.angular_position(link_definition, bias_settings=None)]
+    observation_settings_list = []
+    observation_simulation_settings = []
+    link_ends = dict()
+    link_ends[observation.receiver] = observation.body_reference_point_link_end_id("Earth", observatory)  # the second name is the name of an observatory   
+    link_ends[observation.transmitter] = observation.body_origin_link_end_id((str(target_mpc_code)))
+    link_definition = observation.LinkDefinition(link_ends)
+    observation_settings_list = [observation.angular_position(link_definition, bias_settings=None)]
 
-#     observation_simulation_settings.append(observation.tabulated_simulation_settings(
-#         observation.angular_position_type,
-#         link_definition,
-#         obs_times,
-#         ))
+    observation_simulation_settings.append(observation.tabulated_simulation_settings(
+        observation.angular_position_type,
+        link_definition,
+        obs_times,
+        ))
 
-#     ephemeris_observation_simulators = estimation_setup.create_observation_simulators(
-#         observation_settings_list, bodies)
+    ephemeris_observation_simulators = estimation_setup.create_observation_simulators(
+        observation_settings_list, bodies)
 
-#     # simulate the wanted observations 
-#     simulated_observations = estimation.simulate_observations(
-#         observation_simulation_settings,
-#         ephemeris_observation_simulators,
-#         bodies)
+    # simulate the wanted observations 
+    simulated_observations = estimation.simulate_observations(
+        observation_simulation_settings,
+        ephemeris_observation_simulators,
+        bodies)
     
-#     observations_list = np.array(simulated_observations.concatenated_observations)
-#     ra_prop = np.degrees([np.mod(el, 2*np.pi) for el in observations_list[::2]])
-#     dec_prop = np.degrees(observations_list[1::2])
+    observations_list = np.array(simulated_observations.concatenated_observations)
+    ra_prop = np.degrees([np.mod(el, 2*np.pi) for el in observations_list[::2]])
+    dec_prop = np.degrees(observations_list[1::2])
 
-#     obs_array = []
-#     for i in range(len(ra_prop)):
-#         obs_array.append([ra_prop[i], dec_prop[i]])
+    obs_array = []
+    for i in range(len(ra_prop)):
+        obs_array.append([ra_prop[i], dec_prop[i]])
 
-#     simulated_obs_dict[observatory] = [obs_times, np.array(obs_array)]
+    simulated_obs_dict[observatory] = [obs_times, np.array(obs_array)]
 
 
 """
