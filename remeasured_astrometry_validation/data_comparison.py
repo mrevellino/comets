@@ -493,7 +493,7 @@ for key in astrometry_obs_dict.keys():
 custom_lines = [
     Line2D([0], [0], color='#ff7f0e', marker='o', linestyle='None', label='PAN-STARRS'),
     Line2D([0], [0], color='#2ca02c', marker='o', linestyle='None', label='DECam'),
-    #Line2D([0], [0], color='#1f77b4', marker='o', linestyle='None', label='CFHT'), 
+    Line2D([0], [0], color='#1f77b4', marker='o', linestyle='None', label='CFHT'), 
 ]
 # Add the legend
 plt.legend(handles=custom_lines, loc='best')

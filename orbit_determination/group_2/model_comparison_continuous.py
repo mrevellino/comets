@@ -1,7 +1,7 @@
 """
-Fit your selected empirical acceleration to astrometric data 
-and compare with the residuals obtained applying the Marsden acceleration
-Note differences 
+Orbit determination for analysed comets from group 2, for which all MPC data are analysed
+Any of the implemented acceleration models can be applied
+Estimation of the initial state and the A1, A2, A3 parameters 
 """
 
 # Tudat imports for propagation and estimation
@@ -27,11 +27,11 @@ from astropy import units as u
 import matplotlib.lines as mlines
 
 # import the costum acceleration 
-from comegs.accelerations import COMarsdenAcceleration,  MarsdenAcceleration, PowerLawAcceleration
+from comegs.accelerations import COMarsdenAcceleration,  MarsdenAcceleration, PowerLawAcceleration, ContinousAcceleration
 from comegs.settings import Integrator
 from comegs.observations import Observations
 from comegs.config_files import Configuration
-
+from comegs.plotting import PlotError
 
 # set-up current directory 
 current_dir = os.path.dirname(__file__)
@@ -60,19 +60,17 @@ USER INPUTS:
 - sublimating volatile for the acceleration model
 """
 
-target_mpc_code = '2006 S3' 
+target_mpc_code = '2013 US10' 
 mpc_code = 'C/' + target_mpc_code
-element = 'CO2'
+element = 'CO'
 
-residuals_ra = {}
-residuals_dec = {}
-obs_times_dict = {}
+"""
+Read the relative config file to define the horizons code, etc...
+Make sure that the config file is updated (important for the Horizons code, as the orbit are updated in Horizons)
+"""
 formal_errors_dict = {}
 parameters_dict = {}
 for i in range(2):
-    """
-    Read the relative config file to define the horizons code, etc...
-    """
     config_number = get_number(target_mpc_code)
     with open(f"{workspace}/configuration_files/config_{config_number}.yaml", "r") as f:
         config_dict = yaml.safe_load(f)
@@ -87,6 +85,7 @@ for i in range(2):
     A1 = config_dict['marsden_params']['A1']*aud2_to_ms2
     A2 = config_dict['marsden_params']['A2']*aud2_to_ms2
     A3 = config_dict['marsden_params']['A3']*aud2_to_ms2
+
     initial_parameters = [A1, A2, A3]
 
     observations_start = target_sbdb.first_obs
@@ -95,11 +94,12 @@ for i in range(2):
     time_perihelion = (target_sbdb.time_perihelion - 2451545.0)*86400
 
     """
-    Set up parameters for the estimation
-    """ 
+    Define settings for the estimation (start and end epochs, number of used iterations)
+    """
+    # set up data needed for the estimation 
     number_of_pod_iterations = 8
 
-    # define the frame origin and orientation
+    # define the frame origin and orientation.
     global_frame_origin = "SSB"
     global_frame_orientation = "J2000"
 
@@ -107,7 +107,7 @@ for i in range(2):
     epoch_end = (Time(observations_end).jd - 2451545.0)*86400 + 30*86400
 
     """
-    Define the environment (through the configuration file)
+    Define the environment, settings controlled from the configuration file 
     """
     configuration = Configuration(config_dict, str(target_mpc_code), horizons_code, epoch_start, epoch_end)
     bodies, body_settings = configuration.system_of_bodies(f'{workspace}/SiMDA_250806.csv', comet_radius=None, density=None, satellites_codes=None, satellites_names=None)
@@ -117,79 +117,55 @@ for i in range(2):
     central_bodies = ['Sun']
 
     """
-    Load the astrometrical measurements 
+    Load the astrometrical measurements from the MPC
     """
     # observations from the MPC
     batch = BatchMPC()
     batch.get_observations([str(mpc_code)])
-    batch.filter(
-        epoch_start=observations_start,
-        epoch_end=observations_end,
-        observatories=['568', 'Z84', 'H01', 'G37', 'F65', 'E10', 'F51', 'F52']
-    )
     obs_df = batch.table
     obs_df['epochUTC'] = pd.to_datetime(obs_df['epochUTC'])
-    # extract just the year and month
-    obs_df['obs_month'] = obs_df['epochUTC'].dt.to_period('M')
-    obs_per_month = obs_df.groupby('obs_month').size().reset_index(name='count')
+    # extract just the date (no time)
+    obs_df['obs_date'] = obs_df['epochUTC'].dt.date
+    # count how many observations per date and define weights
+    obs_per_day = obs_df.groupby('obs_date').size().reset_index(name='count')
 
     sigma_arcsec = np.select(
         [obs_df['observatory'] == '568',
         obs_df['observatory'] == 'H01',
-        obs_df['observatory'].isin(['F51', 'F52'])],
-        [0.4, 0.6, 0.4],
-        default=2  
+        obs_df['observatory'].isin(['F51', 'F52']), 
+        obs_df['observatory'].isin(['Z84', 'G37', 'F65', 'E10', 'W84', 'T14', '309'])],
+        [0.4, 0.6, 0.4, 2],
+        default=3  
         ) * u.arcsec
     sigma = sigma_arcsec.to(u.rad).value
 
-    obs_df['weight'] = 1 / (sigma**2 * np.sqrt(obs_df.groupby('obs_month')['obs_month'].transform('count')))
+    obs_df['weight'] = 1 / (sigma**2 *np.sqrt(obs_df.groupby('obs_date')['obs_date'].transform('count')))
     weights_list = obs_df['weight'].tolist()
     batch.set_weights(weights_list)
 
+    batch.summary()
+
 
     try:
-        observation_collection_2 = batch.to_tudat(bodies, None, apply_weights_VFCC17=False)
-        observation_settings_list_2 = list()
+        observation_collection = batch.to_tudat(bodies, None, apply_weights_VFCC17=False)
+        observation_settings_list = list()
         link_list = list(
-            observation_collection_2.get_link_definitions_for_observables(
+            observation_collection.get_link_definitions_for_observables(
                 observable_type=observation.angular_position_type
             )
         )
 
         for link in link_list:
             # add optional bias settings here
-            observation_settings_list_2.append(
+            observation_settings_list.append(
                 observation.angular_position(link, bias_settings=None)
             )
-        
-        # only get the MPC obs to compare if they are good
-        observations_MPC = observation_collection_2.get_concatenated_computed_observations()
-        obs_times_MPC = observation_collection_2.get_concatenated_observation_times()
-        ra_MPC = observations_MPC[::2]
-        dec_MPC = observations_MPC[1::2]
     except:
         print('No obs in MPC')
 
-    # observations from your astrometry 
-    observations = Observations(str(target_mpc_code), epoch_start, epoch_end, bodies)
-    # define the ground stations of the observatories 
-    observatories_table = MPC.get_observatory_codes().to_pandas()
-
-    observation_settings_list_1, observation_collection_1, astrometry_obs_dict = observations.load_observations_from_file(
-        astrometry_results/f'{config_number}.psv', observatories_table, apply_weights=True
-        )
-    obs_times_astro = observation_collection_1.get_concatenated_observation_times()
-
-    try: 
-        observation_settings_list = observation_settings_list_1 + observation_settings_list_2
-        observation_collection = numerical_simulation.estimation.merge_observation_collections([observation_collection_1, observation_collection_2])
-    except: 
-        observation_collection = observation_collection_1
-        observation_settings_list = observation_settings_list_1
-
+    # based on the available observations define the start and end epochs for the estimation
     observations = observation_collection.get_concatenated_computed_observations()
     obs_times = observation_collection.get_concatenated_observation_times()
-    obs_times_dict[i] = obs_times
 
     epoch_start = sorted(obs_times)[0] - 30*86400
     epoch_end = sorted(obs_times)[-1] + 30*86400
@@ -198,31 +174,22 @@ for i in range(2):
     Define the acceleration settings; this is also defined in the configuration file and can be retrieved from the configuration class
     """
     dict_acc = dict()
-    # water parameters 
-    if element == 'H2O':
-        n = 2.3
-        r0_pl = 2.8 
-
-    # CO2 parameters 
-    elif element == 'CO2': 
-        n = 2
-        r0_pl = 7
-
-    elif element == 'CO': 
-        n = 2
-        r0_pl = 30       
 
     if i == 0:
-        nongrav_acc = PowerLawAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
-                                            horizons_code, Dt, epoch_start, epoch_end,
-                                            dict_acc, n, r0_pl)
+        r0_h20 = 2.8
+        r0_co2 = 7
+        r0_co = 30
+        C = 0.5
+        nongrav_acc = ContinousAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
+                                            horizons_code, Dt, epoch_start, epoch_end, dict_acc, 
+                                            element, r0_h20, r0_co2, r0_co, C)
     elif i == 1:
-        nongrav_acc = COMarsdenAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
+        nongrav_acc = MarsdenAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
                                             horizons_code, Dt, epoch_start, epoch_end,
-                                            dict_acc)
-        
+                                            dict_acc)    
 
     acceleration_settings = configuration.acceleration_model(nongrav_acc)
+
 
     # create the acceleration model
     acceleration_models = propagation_setup.create_acceleration_models(
@@ -232,6 +199,7 @@ for i in range(2):
     """
     Retrieve an initial guess for the comet's position
     """ 
+    # retrieve the initial state directly wrt Horizons 
     initial_states = HorizonsQuery(
                 query_id= horizons_code,
                 location="500@10",
@@ -270,73 +238,129 @@ for i in range(2):
         propagator_settings, bodies
     )
 
-    parameter_settings.append(estimation_setup.parameter.custom_parameter(
-                        "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
-                        nongrav_acc.set_custom_parameters
-                    )
-    )
+    if i == 0: 
+        # estimate the A1, A2, A3 and parameters
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
+                            nongrav_acc.set_custom_parameters
+                        )
+        )
 
-    parameter_settings[-1].custom_partial_settings = [
-                    estimation_setup.parameter.custom_analytical_partial(
-                        nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
-                        propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
-                    )
-                ]
+        # estimate the C parameter 
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.C", 1, nongrav_acc.get_custom_C, 
+                            nongrav_acc.set_custom_C
+                        )
+        )
+
+        parameter_settings[-2].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
+
+        parameter_settings[-1].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_C_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
+
+    elif i == 1:
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
+                            nongrav_acc.set_custom_parameters
+                        )
+        )
+
+        parameter_settings[-1].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
 
     # Create the parameters that will be estimated
     parameters_to_estimate = estimation_setup.create_parameter_set(
         parameter_settings, bodies, propagator_settings
     )
 
+    # Iterative filtering of the available observations
+    sigma = 1e3
+    for j in range(3): 
+        
+        """
+        Filter the observations
+        """
+        filter_obj = numerical_simulation.estimation.observation_filter(
+            numerical_simulation.estimation.residual_filtering,
+            5*sigma,
+            use_opposite_condition=False
+        )
+
+        observation_collection.filter_observations(filter_obj)
+        print(len(observation_collection.get_concatenated_residuals()))
+
+        """
+        Set up the estimation 
+        """
+        # Set up the estimator
+        estimator = numerical_simulation.Estimator(
+            bodies=bodies,
+            estimated_parameters=parameters_to_estimate,
+            observation_settings=observation_settings_list,
+            propagator_settings=propagator_settings,
+            integrate_on_creation=True,
+        )
+
+        # provide the observation collection as input, and limit number of iterations for estimation.
+        pod_input = estimation.EstimationInput(
+            observations_and_times=observation_collection,
+            convergence_checker=estimation.estimation_convergence_checker(
+                maximum_iterations=number_of_pod_iterations,
+            ),
+        )
+
+        # Set methodological options
+        pod_input.define_estimation_settings(reintegrate_variational_equations=True)
+
+        """
+        Perform the estimation 
+        """
+        pod_output = estimator.perform_estimation(pod_input)
+
+        """
+        Estimate the 1-sigma value of residuals 
+        """
+        residuals= pod_output.residual_history[:,-1]
+        computed_obs = observation_collection.get_concatenated_computed_observations()
+        dec = computed_obs[1::2]
+        res_ra = residuals[::2]*np.cos(dec)
+        res_dec = residuals[1::2]
+
+        radial = np.sqrt(res_ra**2 + res_dec**2)
+        sigma = np.std(radial, ddof=1)
 
     """
-    Set up the estimation 
-    """
-    # Set up the estimator
-    estimator = numerical_simulation.Estimator(
-        bodies=bodies,
-        estimated_parameters=parameters_to_estimate,
-        observation_settings=observation_settings_list,
-        propagator_settings=propagator_settings,
-        integrate_on_creation=True,
-    )
-
-    # provide the observation collection as input, and limit number of iterations for estimation.
-    pod_input = estimation.EstimationInput(
-        observations_and_times=observation_collection,
-        convergence_checker=estimation.estimation_convergence_checker(
-            maximum_iterations=number_of_pod_iterations,
-        ),
-    )
-
-    # Set methodological options
-    pod_input.define_estimation_settings(reintegrate_variational_equations=True)
-
-    """
-    Perform the estimation 
-    """
-    pod_output = estimator.perform_estimation(pod_input)
-
-    """
-    Retrieve estimation results
-    """   
-    formal_errors = pod_output.formal_errors
+    Retrieve the results of the estimation
+    """    
     final_parameters = pod_output.final_parameters
+    formal_errors = pod_output.formal_errors
 
     parameters_dict[i] = final_parameters
     formal_errors_dict[i] = formal_errors
 
-
 """
 For the 2 models applied evaluate the direction of the accelration vector defined by the estimated A1, A2 and A3 parameters 
 """
-A1_pl = parameters_dict[0][-3]
-A2_pl = parameters_dict[0][-2]
-A3_pl = parameters_dict[0][-1]
+A1_pl = parameters_dict[0][-4]
+A2_pl = parameters_dict[0][-3]
+A3_pl = parameters_dict[0][-2]
 
-sA1_pl = formal_errors_dict[0][-3]
-sA2_pl = formal_errors_dict[0][-2]
-sA3_pl = formal_errors_dict[0][-1]
+sA1_pl = formal_errors_dict[0][-4]
+sA2_pl = formal_errors_dict[0][-3]
+sA3_pl = formal_errors_dict[0][-2]
 
 A1_Mars = parameters_dict[1][-3]
 A2_Mars = parameters_dict[1][-2]
@@ -425,10 +449,10 @@ print('overlap over 1 sigma', overlap_1s)
 print('overlap over 2 sigma', overlap_2s)
 
 # visualization 
-fig = plt.figure(figsize=(4, 3), constrained_layout=True)
+fig = plt.figure(figsize=(3, 3))
 ax = fig.add_subplot(111, projection='3d')
 
-ax.scatter(*Apl_hat.T, s=1, alpha=0.1, label='PL', color = colors[1])
+ax.scatter(*Apl_hat.T, s=1, alpha=0.1, label='Single volatile', color = colors[1])
 ax.scatter(*AM_hat.T,  s=1, alpha=0.1, label='Marsden', color = colors[2])
 
 ax.quiver(
@@ -450,9 +474,9 @@ ax.quiver(
 )
 
 ax.set_box_aspect([1, 1, 1])
-ax.set_xlabel('R')
-ax.set_ylabel('T')
-ax.set_zlabel('N')
+ax.set_xlabel('x')
+ax.set_ylabel('y')
+ax.set_zlabel('z')
 
 from matplotlib.lines import Line2D
 legend_elements = [
@@ -462,7 +486,7 @@ legend_elements = [
            markersize=6,
            markerfacecolor=colors[1],
            markeredgecolor='none',
-           label='Single volatile'),
+           label='Multi volatiles'),
 
     Line2D([0], [0],
            marker='o',
@@ -476,15 +500,10 @@ legend_elements = [
 ax.legend(handles=legend_elements)
 ax.set_title(f'{config_number}')
 
-fig.subplots_adjust(
-    left=0.05,
-    right=0.95,
-    bottom=0.05,
-    top=0.9
-)
-
-plt.savefig(f'direction/{config_number}_direction.png')
+plt.tight_layout()
+plt.savefig(f'direction/{config_number}_direction_continuous.png')
 plt.show()
+
 
 
 

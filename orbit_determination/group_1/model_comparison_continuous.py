@@ -27,7 +27,7 @@ from astropy import units as u
 import matplotlib.lines as mlines
 
 # import the costum acceleration 
-from comegs.accelerations import COMarsdenAcceleration,  MarsdenAcceleration, PowerLawAcceleration
+from comegs.accelerations import ContinousAcceleration, COMarsdenAcceleration,  MarsdenAcceleration, PowerLawAcceleration
 from comegs.settings import Integrator
 from comegs.observations import Observations
 from comegs.config_files import Configuration
@@ -60,9 +60,9 @@ USER INPUTS:
 - sublimating volatile for the acceleration model
 """
 
-target_mpc_code = '2006 S3' 
+target_mpc_code = '2017 K2' 
 mpc_code = 'C/' + target_mpc_code
-element = 'CO2'
+element = 'CO'
 
 residuals_ra = {}
 residuals_dec = {}
@@ -198,24 +198,15 @@ for i in range(2):
     Define the acceleration settings; this is also defined in the configuration file and can be retrieved from the configuration class
     """
     dict_acc = dict()
-    # water parameters 
-    if element == 'H2O':
-        n = 2.3
-        r0_pl = 2.8 
-
-    # CO2 parameters 
-    elif element == 'CO2': 
-        n = 2
-        r0_pl = 7
-
-    elif element == 'CO': 
-        n = 2
-        r0_pl = 30       
 
     if i == 0:
-        nongrav_acc = PowerLawAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
-                                            horizons_code, Dt, epoch_start, epoch_end,
-                                            dict_acc, n, r0_pl)
+        r0_h20 = 2.8
+        r0_co2 = 7
+        r0_co = 30
+        C = 0.5
+        nongrav_acc = ContinousAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
+                                            horizons_code, Dt, epoch_start, epoch_end, dict_acc, 
+                                            element, r0_h20, r0_co2, r0_co, C)
     elif i == 1:
         nongrav_acc = COMarsdenAcceleration(A1, A2, A3, bodies, str(target_mpc_code), 
                                             horizons_code, Dt, epoch_start, epoch_end,
@@ -270,18 +261,48 @@ for i in range(2):
         propagator_settings, bodies
     )
 
-    parameter_settings.append(estimation_setup.parameter.custom_parameter(
-                        "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
-                        nongrav_acc.set_custom_parameters
-                    )
-    )
+    if i == 0: 
+        # estimate the A1, A2, A3 and parameters
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
+                            nongrav_acc.set_custom_parameters
+                        )
+        )
 
-    parameter_settings[-1].custom_partial_settings = [
-                    estimation_setup.parameter.custom_analytical_partial(
-                        nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
-                        propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
-                    )
-                ]
+        # estimate the C parameter 
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.C", 1, nongrav_acc.get_custom_C, 
+                            nongrav_acc.set_custom_C
+                        )
+        )
+
+        parameter_settings[-2].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
+
+        parameter_settings[-1].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_C_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
+
+    elif i == 1:
+        parameter_settings.append(estimation_setup.parameter.custom_parameter(
+                            "marsden_acc.custom_values", 3, nongrav_acc.get_custom_parameters, 
+                            nongrav_acc.set_custom_parameters
+                        )
+        )
+
+        parameter_settings[-1].custom_partial_settings = [
+                        estimation_setup.parameter.custom_analytical_partial(
+                            nongrav_acc.compute_parameter_partials, target_mpc_code, "Sun",
+                            propagation_setup.acceleration.AvailableAcceleration.custom_acceleration_type
+                        )
+                    ]
 
     # Create the parameters that will be estimated
     parameters_to_estimate = estimation_setup.create_parameter_set(
@@ -330,13 +351,13 @@ for i in range(2):
 """
 For the 2 models applied evaluate the direction of the accelration vector defined by the estimated A1, A2 and A3 parameters 
 """
-A1_pl = parameters_dict[0][-3]
-A2_pl = parameters_dict[0][-2]
-A3_pl = parameters_dict[0][-1]
+A1_pl = parameters_dict[0][-4]
+A2_pl = parameters_dict[0][-3]
+A3_pl = parameters_dict[0][-2]
 
-sA1_pl = formal_errors_dict[0][-3]
-sA2_pl = formal_errors_dict[0][-2]
-sA3_pl = formal_errors_dict[0][-1]
+sA1_pl = formal_errors_dict[0][-4]
+sA2_pl = formal_errors_dict[0][-3]
+sA3_pl = formal_errors_dict[0][-2]
 
 A1_Mars = parameters_dict[1][-3]
 A2_Mars = parameters_dict[1][-2]
@@ -397,6 +418,8 @@ def mean_direction(vhat):
 
 mean_pl = mean_direction(Apl_hat)
 mean_M  = mean_direction(AM_hat)
+print(mean_pl)
+print(mean_M)
 
 # calculate the abgular separation of each monte carlo vector from the mean 
 def angular_distance(vhat, vmean):
@@ -405,6 +428,9 @@ def angular_distance(vhat, vmean):
 
 spread_pl = angular_distance(Apl_hat, mean_pl)
 spread_M  = angular_distance(AM_hat, mean_M)
+
+print(spread_pl)
+print(spread_M)
 
 # get the 1 sigma and 2 sigma distributions of the angular separation calculated 
 cone_pl_1s = np.percentile(spread_pl, 68)
@@ -462,7 +488,7 @@ legend_elements = [
            markersize=6,
            markerfacecolor=colors[1],
            markeredgecolor='none',
-           label='Single volatile'),
+           label='Multi volatiles'),
 
     Line2D([0], [0],
            marker='o',
@@ -483,7 +509,7 @@ fig.subplots_adjust(
     top=0.9
 )
 
-plt.savefig(f'direction/{config_number}_direction.png')
+plt.savefig(f'direction/{config_number}_continuous_direction.png')
 plt.show()
 
 
